@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <libdevmapper.h>
 
+#include "dm-ioctl.h"
 #include "darray.h"
 
 static int get_names(void)
