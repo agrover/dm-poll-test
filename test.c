@@ -1,12 +1,21 @@
-#define _GNU_SOURCE
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dirent.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+
 #include <libdevmapper.h>
 
 #include "dm-ioctl.h"
 #include "darray.h"
+
+struct dm_dev {
+	char *dm_name;
+	int fd;
+};
+
+darray(struct dm_dev) dm_devs = darray_new();
 
 static int get_names(void)
 {
@@ -32,14 +41,14 @@ static int get_names(void)
 		goto out;
 
 	do {
+		struct dm_dev dev;
+
 		names = (struct dm_names *)((char *) names + next);
-		printf("dm name = %s\n", names->name);
-		/* if (!dm_task_set_name(dmt, names->name)) { */
-		/* 	r = 0; */
-		/* 	goto out; */
-		/* } */
-		/* if (!dm_task_run(dmt)) */
-		/* 	r = 0; */
+
+		dev.dm_name = strdup(names->name);
+		dev.fd = -1;
+		darray_append(dm_devs, dev);
+
 		next = names->next;
 	} while (next);
 
@@ -48,43 +57,53 @@ static int get_names(void)
 	return r;
 }
 
-
-struct dm_dev {
-	char *filename;
-	int fd;
-};
-
-darray(struct dm_dev) dm_devs = darray_new();
-
-static int is_handler(const struct dirent *dirent)
+int set_dev_event(struct dm_dev *dev)
 {
-	if (strncmp(dirent->d_name, "dm-", 3))
-		return 0;
+	struct dm_ioctl ioc;
 
-	return 1;
-}
+	memset(&ioc, 0, sizeof(ioc));
 
-static int open_devs(void)
-{
-	struct dirent **dirent_list;
-	int i;
-	char *dev_path = "/dev";
+	ioc.version[0] = 4;
+	ioc.version[1] = 30;
+	ioc.version[2] = 0;
 
-	int num_dm_devs = scandir(dev_path, &dirent_list, is_handler, alphasort);
+	ioc.data_start = sizeof(ioc);
+	ioc.data_size = sizeof(ioc);
 
-	if (num_dm_devs == -1)
+	snprintf(ioc.name, sizeof(ioc.name), "%s", dev->dm_name);
+
+	if (ioctl(dev->fd, DM_DEV_EVENT_SET, &ioc) < 0) {
+		printf("error: %m");
 		return -1;
+	}
 
-	printf("num handlers %d\n", num_dm_devs);
-
-	for (i = 0; i < num_dm_devs; i++)
-		free(dirent_list[i]);
-	free(dirent_list);
-
-	return num_dm_devs;
+	return 0;
 }
 
 int main()
 {
-	return get_names();
+	struct dm_dev *dev;
+	int fd;
+
+	get_names();
+
+	darray_foreach(dev, dm_devs) {
+		fd = open("/dev/mapper/control", O_NONBLOCK);
+		if (fd < 0) {
+			printf("Could not open\n");
+			return 1;
+		}
+
+		dev->fd = fd;
+
+		printf("dm name = %s fd = %d\n", dev->dm_name, dev->fd);
+
+		if (set_dev_event(dev) < 0) {
+			printf("set_dev_event failed\n");
+			return 1;
+		}
+
+	}
+
+	return 0;
 }
