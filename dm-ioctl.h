@@ -241,7 +241,7 @@ enum {
 	DM_LIST_VERSIONS_CMD,
 	DM_TARGET_MSG_CMD,
 	DM_DEV_SET_GEOMETRY_CMD,
-	DM_DEV_EVENT_SET_CMD,
+	DM_DEV_ASSOC_CMD,
 };
 
 #define DM_IOCTL 0xfd
@@ -256,7 +256,7 @@ enum {
 #define DM_DEV_SUSPEND   _IOWR(DM_IOCTL, DM_DEV_SUSPEND_CMD, struct dm_ioctl)
 #define DM_DEV_STATUS    _IOWR(DM_IOCTL, DM_DEV_STATUS_CMD, struct dm_ioctl)
 #define DM_DEV_WAIT      _IOWR(DM_IOCTL, DM_DEV_WAIT_CMD, struct dm_ioctl)
-#define DM_DEV_EVENT_SET _IOWR(DM_IOCTL, DM_DEV_EVENT_SET_CMD, struct dm_ioctl)
+#define DM_DEV_ASSOC     _IOWR(DM_IOCTL, DM_DEV_ASSOC_CMD, struct dm_ioctl)
 
 #define DM_TABLE_LOAD    _IOWR(DM_IOCTL, DM_TABLE_LOAD_CMD, struct dm_ioctl)
 #define DM_TABLE_CLEAR   _IOWR(DM_IOCTL, DM_TABLE_CLEAR_CMD, struct dm_ioctl)
@@ -269,7 +269,7 @@ enum {
 #define DM_DEV_SET_GEOMETRY	_IOWR(DM_IOCTL, DM_DEV_SET_GEOMETRY_CMD, struct dm_ioctl)
 
 #define DM_VERSION_MAJOR	4
-#define DM_VERSION_MINOR	35
+#define DM_VERSION_MINOR	36
 #define DM_VERSION_PATCHLEVEL	0
 #define DM_VERSION_EXTRA	"-ioctl (2016-06-23)"
 

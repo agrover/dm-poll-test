@@ -73,7 +73,7 @@ int set_dev_event(struct dm_dev *dev)
 
 	snprintf(ioc.name, sizeof(ioc.name), "%s", dev->dm_name);
 
-	if (ioctl(dev->fd, DM_DEV_EVENT_SET, &ioc) < 0) {
+	if (ioctl(dev->fd, DM_DEV_ASSOC, &ioc) < 0) {
 		printf("error: %m\n");
 		return -1;
 	}
