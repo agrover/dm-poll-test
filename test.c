@@ -13,12 +13,21 @@
 
 struct dm_dev {
 	char *dm_name;
-	int fd;
+	uint32_t event_nr;
 };
 
-darray(struct dm_dev) dm_devs = darray_new();
+typedef darray(struct dm_dev) darray_dmdev;
 
-static int get_names(void)
+/*
+ * Round up the ptr to an 8-byte boundary.
+ */
+#define ALIGN_MASK 7
+static inline void *align_ptr(void *ptr)
+{
+	return (void *) (((size_t) (ptr + ALIGN_MASK)) & ~ALIGN_MASK);
+}
+
+static int get_names(darray_dmdev *out_array)
 {
 	struct dm_task *task;
 	struct dm_names *names;
@@ -43,12 +52,15 @@ static int get_names(void)
 
 	do {
 		struct dm_dev dev;
+		uint32_t *event_nr_ptr;
 
 		names = (struct dm_names *)((char *) names + next);
 
 		dev.dm_name = strdup(names->name);
-		dev.fd = -1;
-		darray_append(dm_devs, dev);
+		event_nr_ptr = align_ptr(((void *) (names + 1))
+					 + strlen(dev.dm_name) + 1);
+		dev.event_nr = *event_nr_ptr;
+		darray_append(*out_array, dev);
 
 		next = names->next;
 	} while (next);
@@ -58,7 +70,7 @@ static int get_names(void)
 	return r;
 }
 
-int set_dev_event(struct dm_dev *dev)
+int arm_poll(int fd)
 {
 	struct dm_ioctl ioc;
 
@@ -71,10 +83,8 @@ int set_dev_event(struct dm_dev *dev)
 	ioc.data_start = sizeof(ioc);
 	ioc.data_size = sizeof(ioc);
 
-	snprintf(ioc.name, sizeof(ioc.name), "%s", dev->dm_name);
-
-	if (ioctl(dev->fd, DM_DEV_ASSOC, &ioc) < 0) {
-		printf("error: %m\n");
+	if (ioctl(fd, DM_DEV_ARM_POLL, &ioc) < 0) {
+		printf("ARM_POLL error: %m\n");
 		return -1;
 	}
 
@@ -119,57 +129,62 @@ out:
 int main()
 {
 	struct dm_dev *dev;
-	struct pollfd *pollfds;
+	struct pollfd pollfd;
 	int fd;
+	darray_dmdev dm_devs = darray_new();
+	int ret;
 
-	get_names();
-
-	darray_foreach(dev, dm_devs) {
-		fd = open("/dev/mapper/control", O_NONBLOCK);
-		if (fd < 0) {
-			printf("Could not open\n");
-			return 1;
-		}
-
-		dev->fd = fd;
-
-		printf("dm name = %s fd = %d\n", dev->dm_name, dev->fd);
-		print_status(dev->dm_name);
-
-		if (set_dev_event(dev) < 0) {
-			printf("set_dev_event failed\n");
-			return 1;
-		}
-
+	ret = get_names(&dm_devs);
+	if (ret < 0) {
+		printf("get_names failed\n");
+		return 1;
 	}
 
-	pollfds = calloc(sizeof(*pollfds), darray_size(dm_devs));
-	if (!pollfds) {
-		printf("could not alloc pollfds[], running this on a wristwatch???\n");
+	fd = open("/dev/mapper/control", O_NONBLOCK);
+	if (fd < 0) {
+		printf("Could not open\n");
 		return 1;
+	}
+
+	darray_foreach(dev, dm_devs) {
+		printf("dm name = %s ", dev->dm_name);
+		print_status(dev->dm_name);
 	}
 
 	do {
 		int i = 0;
-		darray_foreach(dev, dm_devs) {
-			pollfds[i].fd = dev->fd;
-			pollfds[i].events = POLLIN;
-			pollfds[i].revents = 0;
-			i++;
-		}
+		darray_dmdev new_dm_devs = darray_new();
+
+		pollfd.fd = fd;
+		pollfd.events = POLLIN;
+		pollfd.revents = 0;
 
 		printf("entering poll()\n");
-		poll(pollfds, darray_size(dm_devs), -1);
+		poll(&pollfd, 1, -1);
 		printf("returned from poll()\n");
 
-		i = 0;
-		darray_foreach(dev, dm_devs) {
-			if (pollfds[i].revents & POLLIN) {
-				printf("got POLLIN\n");
-				print_status(dev->dm_name);
-			}
-			i++;
+		ret = get_names(&new_dm_devs);
+		if (ret < 0) {
+			printf("get_names for new_dm_devs failed\n");
+			return 1;
 		}
+
+		// NB: Assumes order and length of items in array
+		// returned from get_names() remains constant
+		for (i = 0; i < darray_size(dm_devs); i++) {
+			uint32_t old_nr = darray_item(dm_devs, i).event_nr;
+			uint32_t new_nr = darray_item(new_dm_devs, i).event_nr;
+			if (old_nr != new_nr) {
+				printf("old nr %u new nr %u\n", old_nr, new_nr);
+				print_status(darray_item(dm_devs, i).dm_name);
+			}
+		}
+
+		arm_poll(fd);
+
+		darray_free(dm_devs);
+		dm_devs = new_dm_devs;
+
 	} while (1);
 
 	return 0;
